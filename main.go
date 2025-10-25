@@ -116,21 +116,22 @@ func main() {
 	myApp := app.New()
 	myApp.Settings().SetTheme(&CustomTheme{Theme: theme.DarkTheme()})
 	myWindow := myApp.NewWindow("黄金价格监控")
-	//myWindow.SetIcon(resourceIconPng)
+	myWindow.SetIcon(resourceIconPng)
 	myWindow.Resize(fyne.NewSize(600, 520))
 
 	// 输入字段
 	buyPriceEntry := widget.NewEntry()
 	buyPriceEntry.SetPlaceHolder("请输入买入价格（如 935.5）")
-	targetPriceEntry := widget.NewEntry()
-	targetPriceEntry.SetPlaceHolder("请输入目标价格（如 970.0）")
+	targetBuyPriceEntry := widget.NewEntry()
+	targetBuyPriceEntry.SetPlaceHolder("请输入目标买入价格（如 900.0）")
+	targetSellPriceEntry := widget.NewEntry()
+	targetSellPriceEntry.SetPlaceHolder("请输入目标卖出价格（如 970.0）")
 	intervalEntry := widget.NewEntry()
 	intervalEntry.SetPlaceHolder("请输入间隔时间（秒，如 10）")
 
 	// 日志区域
-	logText := widget.NewMultiLineEntry()
-	logText.Disable()
-	logText.SetMinRowsVisible(15) // 默认显示 15 行
+	logText := widget.NewLabel("")
+	logText.Wrapping = fyne.TextWrapWord // 自动换行
 	logScroll := container.NewVScroll(logText)
 	logScroll.SetMinSize(fyne.NewSize(400, 300)) // 设置日志区域最小高度 300 像素
 
@@ -146,8 +147,6 @@ func main() {
 	// 追加日志并带时间戳
 	log := func(msg string) {
 		logMutex.Lock()
-		defer logMutex.Unlock()
-
 		line := time.Now().Format("2006-01-02 15:04:05") + ": " + msg
 		logLines = append(logLines, line)
 
@@ -155,24 +154,21 @@ func main() {
 			logLines = logLines[len(logLines)-maxLogLines:]
 		}
 
-		var builder strings.Builder
-		for _, l := range logLines {
-			builder.WriteString(l)
-			builder.WriteByte('\n')
-		}
-
-		finalText := builder.String()
+		// 用换行符连接
+		displayText := strings.Join(logLines, "\n")
 
 		fyne.Do(func() {
-			logText.SetText(finalText)
+			logText.SetText(displayText)
 			logText.Refresh()
+
+			// 延迟滚动到底部
 			time.AfterFunc(50*time.Millisecond, func() {
 				fyne.Do(func() {
 					logScroll.ScrollToBottom()
 				})
 			})
-			//logScroll.ScrollToBottom()
 		})
+		logMutex.Unlock()
 	}
 
 	// HTTP 请求函数
@@ -257,9 +253,14 @@ func main() {
 					log("买入价格无效")
 					continue
 				}
-				targetPrice, err := strconv.ParseFloat(targetPriceEntry.Text, 64)
+				targetBuyPrice, err := strconv.ParseFloat(targetBuyPriceEntry.Text, 64)
 				if err != nil {
-					log("目标价格无效")
+					log("目标买入价格无效")
+					continue
+				}
+				targetSellPrice, err := strconv.ParseFloat(targetSellPriceEntry.Text, 64)
+				if err != nil {
+					log("目标卖出价格无效")
 					continue
 				}
 				interval, err := strconv.Atoi(intervalEntry.Text)
@@ -293,8 +294,28 @@ func main() {
 					if len(errList) > 5 {
 						errList = errList[len(errList)-5:]
 					}
-					if price >= targetPrice {
-						msg := fmt.Sprintf("\n买入价格: %.2f\n当前价格: %.2f\n目标价格%.2f\n可以卖出！", buyPrice, price, targetPrice)
+
+					if price <= targetBuyPrice {
+						msg := fmt.Sprintf("\n买入价格: %.2f\n当前价格: %.2f\n目标买入价格%.2f\n可以买入！", buyPrice, price, targetBuyPrice)
+						log(msg)
+						if notify && key != "" {
+							_, err = scSend(key, "买入提醒", msg)
+							if err != nil {
+								log(fmt.Sprintf("微信通知失败：【%s】", err.Error()))
+							}
+						}
+						showAlertPopup(msg)
+						buttonMutex.Lock()
+						isRunning = false
+						fyne.Do(func() {
+							runButton.SetText("运行")
+						})
+						buttonMutex.Unlock()
+						break
+					}
+
+					if price >= targetSellPrice {
+						msg := fmt.Sprintf("\n买入价格: %.2f\n当前价格: %.2f\n目标卖出价格%.2f\n可以卖出！", buyPrice, price, targetSellPrice)
 						log(msg)
 						if notify && key != "" {
 							_, err = scSend(key, "卖出提醒", msg)
@@ -303,7 +324,6 @@ func main() {
 							}
 						}
 						showAlertPopup(msg)
-						//dialog.ShowInformation("目标达成", fmt.Sprintf("\n买入价格: %.2f\n当前价格: %.2f\n目标价格%.2f\n可以卖出！", buyPrice, price, targetPrice), myWindow)
 						buttonMutex.Lock()
 						isRunning = false
 						fyne.Do(func() {
@@ -327,7 +347,7 @@ func main() {
 			runButton.SetText("运行")
 			log("已暂停")
 		} else {
-			if buyPriceEntry.Text == "" || targetPriceEntry.Text == "" || intervalEntry.Text == "" {
+			if buyPriceEntry.Text == "" || targetBuyPriceEntry.Text == "" || targetSellPriceEntry.Text == "" || intervalEntry.Text == "" {
 				go func() {
 					log("请填写所有字段")
 				}()
@@ -343,7 +363,8 @@ func main() {
 	// 布局
 	form := container.New(layout.NewFormLayout(),
 		widget.NewLabel("买入价格："), buyPriceEntry,
-		widget.NewLabel("目标价格："), targetPriceEntry,
+		widget.NewLabel("目标买入价格："), targetBuyPriceEntry,
+		widget.NewLabel("目标卖出价格："), targetSellPriceEntry,
 		widget.NewLabel("间隔时间（秒）："), intervalEntry,
 	)
 	content := container.NewVBox(
