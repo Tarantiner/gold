@@ -7,7 +7,6 @@ import (
 	"flag"
 	"fmt"
 	"fyne.io/fyne/v2/theme"
-	"image/color"
 	"io"
 	"net/http"
 	"regexp"
@@ -31,18 +30,6 @@ type Quote struct {
 			Q67 string `json:"q67"`
 		} `json:"quote"`
 	} `json:"data"`
-}
-
-type CustomTheme struct {
-	fyne.Theme
-}
-
-func (c *CustomTheme) Color(name fyne.ThemeColorName, variant fyne.ThemeVariant) color.Color {
-	if name == theme.ColorNameDisabled {
-		return color.White // 强制输入文本为黑色
-	}
-	// 其他颜色走默认主题
-	return c.Theme.Color(name, variant)
 }
 
 var maxLogLines int
@@ -114,7 +101,7 @@ func scSend(sendkey, title, desp string) (map[string]interface{}, error) {
 func main() {
 	// 初始化 Fyne 应用
 	myApp := app.New()
-	myApp.Settings().SetTheme(&CustomTheme{Theme: theme.DarkTheme()})
+	myApp.Settings().SetTheme(theme.DarkTheme())
 	myWindow := myApp.NewWindow("黄金价格监控")
 	myWindow.SetIcon(resourceIconPng)
 	myWindow.Resize(fyne.NewSize(600, 520))
