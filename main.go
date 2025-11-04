@@ -16,6 +16,7 @@ import (
 	"io"
 	"net/http"
 	"regexp"
+	"sort"
 	"strconv"
 	"strings"
 	"sync"
@@ -263,10 +264,32 @@ func scSend(sendkey, title, desp string) (map[string]interface{}, error) {
 	return result, nil
 }
 
-func getStatsPrice(recLis []*PriceInfo, n int64) (maxVal, minVal, avgVal float64) {
+func getMedian(nums []float64) float64 {
+	if len(nums) == 0 {
+		return 0
+	}
+
+	// 复制一份，避免修改原始切片
+	data := make([]float64, len(nums))
+	copy(data, nums)
+	sort.Float64s(data)
+
+	n := len(data)
+	if n%2 == 1 {
+		// 奇数：直接取中间
+		return data[n/2]
+	}
+
+	// 偶数：取中间两个数的平均值
+	mid1 := data[n/2-1]
+	mid2 := data[n/2]
+	return (mid1 + mid2) / 2
+}
+
+func getStatsPrice(recLis []*PriceInfo, n int64) (maxVal, minVal, avgVal, medVal float64) {
 	// 初始化最大值、最小值和总和
-	maxVal = recLis[0].Price
-	minVal = recLis[0].Price
+	maxVal = 0
+	minVal = 0.0
 	sum := 0.0
 
 	// 遍历切片计算
@@ -275,16 +298,18 @@ func getStatsPrice(recLis []*PriceInfo, n int64) (maxVal, minVal, avgVal float64
 	//fmt.Printf("计算%d分钟内\n", n)
 	//fmt.Println("长度", len(recLis))
 	//var j int
+	priceList := make([]float64, 0, 120)
 	for _, itm := range recLis {
 		if itm.T+n*60 < nowTime {
 			//j = i
 			continue
 		}
 		useN++
-		if itm.Price > maxVal {
+		priceList = append(priceList, itm.Price)
+		if maxVal == 0.0 || itm.Price > maxVal {
 			maxVal = itm.Price
 		}
-		if itm.Price < minVal {
+		if minVal == 0.0 || itm.Price < minVal {
 			minVal = itm.Price
 		}
 		sum += itm.Price
@@ -293,6 +318,7 @@ func getStatsPrice(recLis []*PriceInfo, n int64) (maxVal, minVal, avgVal float64
 
 	// 计算平均值
 	avgVal = sum / float64(useN)
+	medVal = getMedian(priceList)
 	return
 }
 
@@ -445,8 +471,8 @@ func main() {
 				} else {
 					recLis = append(recLis, &PriceInfo{time.Now().Unix(), price})
 					if statsNum > 0 {
-						maxVal, minVal, avgVal := getStatsPrice(recLis, int64(statsNum))
-						log(fmt.Sprintf("当前价格: %.2f|max:%.2f|min:%.2f|avg:%.2f", price, maxVal, minVal, avgVal))
+						maxVal, minVal, avgVal, medVal := getStatsPrice(recLis, int64(statsNum))
+						log(fmt.Sprintf("当前价格: %.2f|max:%.2f|min:%.2f|avg:%.2f|med:%.2f", price, maxVal, minVal, avgVal, medVal))
 					}
 
 					profit := 10000/price*(price-buyPrice) - 50
@@ -523,9 +549,9 @@ func main() {
 		widget.NewLabel("买入价格："), buyPriceEntry,
 		widget.NewLabel("目标买入价格："), targetBuyPriceEntry,
 		widget.NewLabel("目标卖出价格："), targetSellPriceEntry,
+		widget.NewLabel("当前万元收益："), profitEntry,
 		widget.NewLabel("间隔时间（秒）："), intervalEntry,
 		widget.NewLabel("统计时间（分）："), statsEntry,
-		widget.NewLabel("当前万元收益："), profitEntry,
 	)
 	content := container.NewVBox(
 		form,
