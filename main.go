@@ -473,6 +473,8 @@ func main() {
 					if statsNum > 0 {
 						maxVal, minVal, avgVal, medVal := getStatsPrice(recLis, int64(statsNum))
 						log(fmt.Sprintf("当前价格: %.2f|max:%.2f|min:%.2f|avg:%.2f|med:%.2f", price, maxVal, minVal, avgVal, medVal))
+					} else {
+						log(fmt.Sprintf("当前价格: %.2f", price))
 					}
 
 					profit := 10000/price*(price-buyPrice) - 50
