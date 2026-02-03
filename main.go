@@ -6,13 +6,6 @@ import (
 	"encoding/json"
 	"flag"
 	"fmt"
-	"fyne.io/fyne/v2"
-	"fyne.io/fyne/v2/app"
-	"fyne.io/fyne/v2/container"
-	"fyne.io/fyne/v2/layout"
-	"fyne.io/fyne/v2/theme"
-	"fyne.io/fyne/v2/widget"
-	"golang.org/x/sys/windows"
 	"io"
 	"net/http"
 	"regexp"
@@ -21,6 +14,14 @@ import (
 	"strings"
 	"sync"
 	"time"
+
+	"fyne.io/fyne/v2"
+	"fyne.io/fyne/v2/app"
+	"fyne.io/fyne/v2/container"
+	"fyne.io/fyne/v2/layout"
+	"fyne.io/fyne/v2/theme"
+	"fyne.io/fyne/v2/widget"
+	"golang.org/x/sys/windows"
 
 	"gopkg.in/ini.v1"      // INI 解析
 	_ "modernc.org/sqlite" // SQLite 驱动（纯 Go）
@@ -224,10 +225,28 @@ func init() {
 }
 
 func showAlertPopup(message string) {
-	msg, _ := windows.UTF16PtrFromString("提醒")
+	// 使用简单可靠的方法创建置顶弹窗
+	msg, _ := windows.UTF16PtrFromString("黄金价格提醒")
 	content, _ := windows.UTF16PtrFromString(message)
-	windows.MessageBox(0, content, msg, windows.MB_ICONINFORMATION)
+	// 使用MB_TOPMOST确保置顶，MB_SETFOREGROUND确保获得焦点
+	flags := uint32(windows.MB_ICONINFORMATION | windows.MB_OK | windows.MB_SETFOREGROUND | windows.MB_TOPMOST)
+	// 单次显示，确保置顶
+	windows.MessageBox(0, content, msg, flags)
 }
+
+//func showAlertPopup(message string) {
+//	// 使用简单可靠的方法创建置顶弹窗
+//	msg, _ := windows.UTF16PtrFromString("黄金价格提醒")
+//	content, _ := windows.UTF16PtrFromString(message)
+//	// 使用MB_TOPMOST确保置顶，MB_SETFOREGROUND确保获得焦点
+//	flags := uint32(windows.MB_ICONINFORMATION | windows.MB_OK | windows.MB_SETFOREGROUND)
+//	// 第一次尝试：使用默认窗口
+//	windows.MessageBox(0, content, msg, flags)
+//	// 短暂延迟后再次尝试，确保置顶
+//	time.Sleep(100 * time.Millisecond)
+//	// 第二次尝试：添加MB_TOPMOST
+//	windows.MessageBox(0, content, msg, flags|windows.MB_TOPMOST)
+//}
 
 func scSend(sendkey, title, desp string) (map[string]interface{}, error) {
 	var url string
@@ -337,7 +356,8 @@ func main() {
 	myApp.Settings().SetTheme(theme.DarkTheme())
 	myWindow := myApp.NewWindow("黄金价格监控")
 	myWindow.SetIcon(resourceIconPng)
-	myWindow.Resize(fyne.NewSize(600, 520))
+	//myWindow.Resize(fyne.NewSize(720, 540))
+	myWindow.Resize(fyne.NewSize(720, 0))
 
 	// 输入框
 	buyPriceEntry := widget.NewEntry()
@@ -351,12 +371,18 @@ func main() {
 	statsEntry := widget.NewEntry()
 	statsEntry.SetPlaceHolder("请输入统计时间（分钟，如 10）")
 	profitEntry := widget.NewEntry()
+	currEntry := widget.NewEntry()
+
+	// 通知开关
+	notifyCheck := widget.NewCheck("启用通知提醒", func(checked bool) {
+		notify = checked
+	})
 
 	// 日志区
 	logText := widget.NewLabel("")
 	logText.Wrapping = fyne.TextWrapWord
 	logScroll := container.NewVScroll(logText)
-	logScroll.SetMinSize(fyne.NewSize(400, 300))
+	logScroll.SetMinSize(fyne.NewSize(400, 150)) // 减小最小高度，便于用户缩小窗口
 
 	// 运行按钮
 	runButton := widget.NewButton("运行", nil)
@@ -479,6 +505,7 @@ func main() {
 
 					profit := 10000/price*(price-buyPrice) - 50
 					fyne.Do(func() {
+						currEntry.SetText(fmt.Sprintf("%.2f", price))
 						profitEntry.SetText(fmt.Sprintf("%.2f", profit))
 					})
 
@@ -492,7 +519,7 @@ func main() {
 
 					// 买入提醒
 					if price <= targetBuyPrice {
-						msg := fmt.Sprintf("\n买入价: %.2f\n现价: %.2f\n目标买入: %.2f\n可以买入！", buyPrice, price, targetBuyPrice)
+						msg := fmt.Sprintf("\n买入平均价格: %.2f\n现价: %.2f\n目标买入价格: %.2f\n可以买入！", buyPrice, price, targetBuyPrice)
 						log(msg)
 						if notify && key != "" {
 							go scSend(key, "买入提醒", msg)
@@ -505,7 +532,7 @@ func main() {
 
 					// 卖出提醒
 					if price >= targetSellPrice {
-						msg := fmt.Sprintf("\n买入价: %.2f\n现价: %.2f\n目标卖出: %.2f\n可以卖出！", buyPrice, price, targetSellPrice)
+						msg := fmt.Sprintf("\n买入平均价格: %.2f\n现价: %.2f\n目标卖出价格: %.2f\n可以卖出！", buyPrice, price, targetSellPrice)
 						log(msg)
 						if notify && key != "" {
 							go scSend(key, "卖出提醒", msg)
@@ -548,18 +575,28 @@ func main() {
 
 	// 布局（无表格）
 	form := container.New(layout.NewFormLayout(),
-		widget.NewLabel("买入价格："), buyPriceEntry,
+		widget.NewLabel("买入平均价格："), buyPriceEntry,
 		widget.NewLabel("目标买入价格："), targetBuyPriceEntry,
 		widget.NewLabel("目标卖出价格："), targetSellPriceEntry,
+		widget.NewLabel("当前买卖价格："), currEntry,
 		widget.NewLabel("当前万元收益："), profitEntry,
 		widget.NewLabel("间隔时间（秒）："), intervalEntry,
 		widget.NewLabel("统计时间（分）："), statsEntry,
+		widget.NewLabel("通知设置："), notifyCheck,
 	)
-	content := container.NewVBox(
+	// 使用Border布局，让logScroll能够自动扩展
+	topContent := container.NewVBox(
 		form,
 		runButton,
 		widget.NewLabel("日志："),
-		logScroll,
+	)
+
+	content := container.NewBorder(
+		topContent, // 顶部内容
+		nil,        // 底部内容
+		nil,        // 左侧内容
+		nil,        // 右侧内容
+		logScroll,  // 中心内容（自动扩展）
 	)
 
 	myWindow.SetContent(content)
